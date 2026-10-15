@@ -935,6 +935,10 @@ async function startNezhaAgent() {
             stateStream.on('error', (err) => { logErr('[Agent] ReportSystemState strem error:', err.message); workerCancelled = true; });
             stateStream.on('end', () => { log('[Agent] ReportSystemState strem finished'); workerCancelled = true; });
 
+            // 修复: stateStream 也挂常驻 error/end 监听, 否则流断开时会抛 Unhandled 'error' 导致整个进程崩溃
+            stateStream.on('error', (err) => { logErr('[Agent] ReportSystemState strem error:', err.message); workerCancelled = true; });
+            stateStream.on('end', () => { log('[Agent] ReportSystemState strem finished'); workerCancelled = true; });
+
             const stateLoop = (async () => {
                 while (!workerCancelled) {
                     try {
