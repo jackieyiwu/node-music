@@ -570,24 +570,43 @@ function parseIPFromResponse(body, family) {
 }
 
 async function fetchIP() {
-    const ipv4Endpoints = ['https://ipv4.ip.sb/ip', 'https://blog.cloudflare.com/cdn-cgi/trace', 'https://developers.cloudflare.com/cdn-cgi/trace'];
-    const ipv6Endpoints = ['https://ipv6.ip.sb/ip', 'https://blog.cloudflare.com/cdn-cgi/trace', 'https://developers.cloudflare.com/cdn-cgi/trace'];
+    const forced = (process.env.FORCE_IP || '').trim();
+    if (forced && (net.isIPv4(forced) || net.isIPv6(forced))) {
+        return net.isIPv4(forced) ? { ipv4: forced, ipv6: '' } : { ipv4: '', ipv6: forced };
+    }
+    const ipv4Endpoints = ['https://ipv4.ip.sb/ip', 'https://blog.cloudflare.com/cdn-cgi/trace', 'https://developers.cloudflare.com/cdn-cgi/trace', 'https://api.ipify.org', 'https://checkip.amazonaws.com', 'https://icanhazip.com'];
+    const ipv6Endpoints = ['https://ipv6.ip.sb/ip', 'https://blog.cloudflare.com/cdn-cgi/trace', 'https://developers.cloudflare.com/cdn-cgi/trace', 'https://api6.ipify.org', 'https://icanhazip.com'];
     const fetchFromEndpoints = async (endpoints, family) => {
         for (const url of endpoints) {
             const ip = await new Promise((resolve) => {
                 const req = https.get(url, { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0' }, lookup: makeLookup(family) }, (res) => {
                     let data = '';
                     res.on('data', (chunk) => data += chunk);
-                    res.on('end', () => { resolve(parseIPFromResponse(data, family)); });
+                    res.on('end', () => { const p = parseIPFromResponse(data, family); if (!p) log('[GeoIP] 无IP解析:', url, '返回:', JSON.stringify(data.slice(0, 80))); resolve(p); });
                 });
-                req.on('error', () => resolve(''));
-                req.on('timeout', () => { req.destroy(); resolve(''); });
+                req.on('error', (e) => { log('[GeoIP] 请求失败:', url, e.message); resolve(''); });
+                req.on('timeout', () => { log('[GeoIP] 请求超时:', url); req.destroy(); resolve(''); });
             });
             if (ip) return ip;
         }
         return '';
     };
     const [ipv4, ipv6] = await Promise.all([fetchFromEndpoints(ipv4Endpoints, 4), fetchFromEndpoints(ipv6Endpoints, 6)]);
+    if (!ipv4 && !ipv6) {
+        // DNS 兜底：查 o-o.myaddr.l.google.com 的 TXT 记录，不走 HTTP
+        try {
+            const records = await Promise.race([
+                dns.promises.resolveTxt('o-o.myaddr.l.google.com'),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('dns timeout')), 8000)),
+            ]);
+            const txt = (records || []).flat().join(' ').replace(/"/g, '');
+            const m4 = txt.match(/\b(?:\d{1,3}\.){3}\d{1,3}/);
+            const m6 = txt.match(/\b([0-9a-fA-F]{0,4}:){2,}[0-9a-fA-F:]{1,}/);
+            if (m4 && net.isIPv4(m4[0])) { log('[GeoIP] DNS 方式获取到 IPv4:', m4[0]); return { ipv4: m4[0], ipv6: '' }; }
+            if (m6 && net.isIPv6(m6[0])) { log('[GeoIP] DNS 方式获取到 IPv6:', m6[0]); return { ipv4: '', ipv6: m6[0] }; }
+            log('[GeoIP] DNS 返回无法解析:', JSON.stringify(txt.slice(0, 80)));
+        } catch (e) { log('[GeoIP] DNS 方式失败:', e.message); }
+    }
     return { ipv4, ipv6 };
 }
 
