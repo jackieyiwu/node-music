@@ -574,7 +574,8 @@ async function fetchIP() {
     if (forced && (net.isIPv4(forced) || net.isIPv6(forced))) {
         return net.isIPv4(forced) ? { ipv4: forced, ipv6: '' } : { ipv4: '', ipv6: forced };
     }
-    const ipv4Endpoints = ['https://ipv4.ip.sb/ip', 'https://blog.cloudflare.com/cdn-cgi/trace', 'https://developers.cloudflare.com/cdn-cgi/trace', 'https://api.ipify.org', 'https://checkip.amazonaws.com', 'https://icanhazip.com'];
+    // 与 getip() 使用同一探测源(api-ipv4.ip.sb)放在首位, 保证 nezha 上报 IP 与节点地址一致
+    const ipv4Endpoints = ['https://api-ipv4.ip.sb/ip', 'https://ipv4.ip.sb/ip', 'https://blog.cloudflare.com/cdn-cgi/trace', 'https://developers.cloudflare.com/cdn-cgi/trace', 'https://api.ipify.org', 'https://checkip.amazonaws.com', 'https://icanhazip.com'];
     const ipv6Endpoints = ['https://ipv6.ip.sb/ip', 'https://blog.cloudflare.com/cdn-cgi/trace', 'https://developers.cloudflare.com/cdn-cgi/trace', 'https://api6.ipify.org', 'https://icanhazip.com'];
     const fetchFromEndpoints = async (endpoints, family) => {
         for (const url of endpoints) {
@@ -593,6 +594,12 @@ async function fetchIP() {
     };
     const [ipv4, ipv6] = await Promise.all([fetchFromEndpoints(ipv4Endpoints, 4), fetchFromEndpoints(ipv6Endpoints, 6)]);
     if (!ipv4 && !ipv6) {
+        // fallback: 复用 getip()(节点地址的探测源), 保证上报 IP 与节点地址一致; getip 成功会写入全局 CurrentDomain
+        try {
+            await getip();
+            if (net.isIPv4(CurrentDomain)) { log('[GeoIP] HTTP 端点全部失败, fallback getip() 获取到 IPv4:', CurrentDomain); return { ipv4: CurrentDomain, ipv6: '' }; }
+            if (net.isIPv6(CurrentDomain)) { log('[GeoIP] HTTP 端点全部失败, fallback getip() 获取到 IPv6:', CurrentDomain); return { ipv4: '', ipv6: CurrentDomain }; }
+        } catch (e) { log('[GeoIP] getip() fallback 失败:', e.message); }
         // DNS 兜底：查 o-o.myaddr.l.google.com 的 TXT 记录，不走 HTTP
         try {
             const records = await Promise.race([
