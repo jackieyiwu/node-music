@@ -44,10 +44,6 @@ const WSPATH = process.env.WSPATH || UUID.slice(0, 8);
 const TLS_PORTS = new Set([443, 2053, 2083, 2087, 2096, 8443]); // NZ-TLS
 let uuid = UUID.replace(/-/g, ""), CurrentDomain = DOMAIN, Tls = 'tls', CurrentPort = 443, ISP = '';
 const DNS_SERVERS = ['8.8.4.4', '1.1.1.1'];
-const BLOCKED_DOMAINS = [
-  'speedtest.net', 'fast.com', 'speedtest.cn', 'speed.cloudflare.com', 'speedof.me',
-   'testmy.net', 'bandwidth.place', 'speed.io', 'librespeed.org', 'speedcheck.org'
-];
 
 //  TLS 检测
 function shouldUseTLS(server) {
@@ -57,14 +53,6 @@ function shouldUseTLS(server) {
     return TLS_PORTS.has(port);
 }
 
-// block speedtest domains
-function isBlockedDomain(host) {
-  if (!host) return false;
-  const hostLower = host.toLowerCase();
-  return BLOCKED_DOMAINS.some(blocked => {
-    return hostLower === blocked || hostLower.endsWith('.' + blocked);
-  });
-}
 
 // 获取isp
 async function getisp() {
@@ -180,7 +168,6 @@ function handleVlsConnection(ws, msg) {
     (ATYP == 2 ? new TextDecoder().decode(msg.slice(i + 1, i += 1 + msg.slice(i, i + 1).readUInt8())) :
       (ATYP == 3 ? msg.slice(i, i += 16).reduce((s, b, i, a) => (i % 2 ? s.concat(a.slice(i - 1, i + 1)) : s), []).map(b => b.readUInt16BE(0).toString(16)).join(':') : ''));
 
-  if (isBlockedDomain(host)) { ws.close(); return false; }
   ws.send(new Uint8Array([VERSION, 0]));
   const duplex = createWebSocketStream(ws);
   resolveHost(host)
@@ -229,7 +216,6 @@ function handleTrojConnection(ws, msg) {
     } else { return false; }
     port = msg.readUInt16BE(offset); offset += 2;
     if (offset < msg.length && msg[offset] === 0x0d && msg[offset + 1] === 0x0a) offset += 2;
-    if (isBlockedDomain(host)) { ws.close(); return false; }
     const duplex = createWebSocketStream(ws);
     resolveHost(host)
       .then(resolvedIP => {
@@ -263,7 +249,6 @@ function handleSsConnection(ws, msg) {
       host = msg.slice(offset, offset + 16).reduce((s, b, i, a) => (i % 2 ? s.concat(a.slice(i - 1, i + 1)) : s), []).map(b => b.readUInt16BE(0).toString(16)).join(':'); offset += 16;
     } else { return false; }
     port = msg.readUInt16BE(offset); offset += 2;
-    if (isBlockedDomain(host)) { ws.close(); return false; }
     const duplex = createWebSocketStream(ws);
     resolveHost(host)
       .then(resolvedIP => {
