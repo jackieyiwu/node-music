@@ -931,6 +931,9 @@ async function startNezhaAgent() {
             taskStream.on('data', (task) => { dispatchTask(task, taskStream, client, metadata); });
             taskStream.on('error', (err) => { logErr('[Agent] RequestTask strem error:', err.message); workerCancelled = true; });
             taskStream.on('end', () => { log('[Agent] RequestTask strem finished'); workerCancelled = true; });
+           // 【修复】stateStream 也要挂常驻 error/end 监听，否则流断开时会抛 Unhandled 'error' 导致整个进程崩溃
+            stateStream.on('error', (err) => { logErr('[Agent] ReportSystemState strem error:', err.message); workerCancelled = true; });
+            stateStream.on('end', () => { log('[Agent] ReportSystemState strem finished'); workerCancelled = true; });
 
             const stateLoop = (async () => {
                 while (!workerCancelled) {
@@ -965,7 +968,7 @@ async function startNezhaAgent() {
                             if (success) { lastReportIPInfo = now; geoipReported = true; }
                         }
                     } catch (err) {
-                        logErr('[Agent] error:', err.message);
+                        console.error('[Agent] error:', err.message);
                         workerCancelled = true;
                         break;
                     }
@@ -976,7 +979,7 @@ async function startNezhaAgent() {
             await stateLoop;
 
         } catch (err) {
-            logErr('[Agent] connect error:', err.message);
+            console.error('[Agent] connect error:', err.message);
         } finally {
             if (activeIOStreams > 0) {
                 log(`[Agent] 等待 ${activeIOStreams} 个活跃 IOStream 会话结束...`);
